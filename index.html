@@ -5,8 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Nova Drill Control</title>
     <link rel="stylesheet" href="css/style.css">
+	<link rel="manifest" href="manifest.json">
 </head>
 <body>
+
+	<!-- Registrácia Service Workera -->
+	<script>
+	  if ('serviceWorker' in navigator) {
+		window.addEventListener('load', () => {
+		  navigator.serviceWorker.register('pwa/sws.js')
+			.then(reg => console.log('Service Worker registrovaný!', reg))
+			.catch(err => console.log('Chyba registrácie:', err));
+		});
+	  }
+	</script>
 
 <div class="container">
     
@@ -283,7 +295,7 @@
     </div>
 </div>
 
-<script type="module" src="js/main.js"></script>
+<script  type="module" src="js/main.js"></script>
 
 </body>
 </html>
