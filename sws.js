@@ -1,41 +1,68 @@
-const CACHE_NAME = 'pwa-force-offline-v1';
+const CACHE_NAME = 'pwa-dynamic-cache-v2';
 
-// 1. Pri inštalácii hneď prevezmi kontrolu nad aplikáciou
 self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// 2. Aktivácia a okamžité previazanie na všetky otvorené okná
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((cache) => {
+          if (cache !== CACHE_NAME) {
+            return caches.delete(cache);
+          }
+        })
+      );
+    })
+  );
+  return self.clients.claim();
 });
 
-// 3. AGRESÍVNA CACHE-FIRST STRATÉGIA (Bezpečné pre vadné SSL a offline beh)
+// Hlavný filter pre zachytávanie požiadaviek
 self.addEventListener('fetch', (event) => {
+  // 1. Ignorujeme všetko, čo nie je GET
   if (event.request.method !== 'GET') return;
+
+  // 2. OPRAVA: Ignorujeme chrome-extension, edge-extension, atď.
+  const url = new URL(event.request.url);
+  if (!url.protocol.startsWith('http')) return;
 
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      // AK JE SÚBOR V CACHE: Okamžite ho vráť (aj offline). Na sieť sa vôbec nepýtaj.
+      // Ak súbor už máme v cache, okamžite ho vrátime (ideálne pre offline)
       if (cachedResponse) {
         return cachedResponse;
       }
 
-      // AK SÚBOR V CACHE NIE JE: Stiahni ho zo siete a ZA POCHODU ho ulož
-      return fetch(event.request, { mode: 'no-cors' }) // 'no-cors' pomáha obísť niektoré SSL reštrikcie starého Chromia
+      // Ak v cache nie je, stiahneme ho zo siete
+      return fetch(event.request)
         .then((networkResponse) => {
-          // Ak dostaneme odpoveď, klonujeme ju a uložíme do cache pre nabudúce
-          if (networkResponse) {
+          // Ukladáme iba validné odpovede (status 200)
+          if (networkResponse && networkResponse.status === 200) {
             const responseToCache = networkResponse.clone();
             caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, responseToCache);
+              // Bezpečne uložíme iba legitímne HTTP/HTTPS požiadavky
+              cache.put(event.request, responseToCache).catch((err) => {
+                console.warn('Nepodarilo sa uložiť do cache:', err);
+              });
             });
           }
           return networkResponse;
         })
-        .catch(() => {
-          // Núdzový fallback ak zlyhá sieť aj cache (napr. pre hlavnú stránku)
-          return caches.match('/');
+        .catch((error) => {
+          // OPRAVA 'Failed to convert value to 'Response'':
+          // Ak sieť zlyhá a nemáme ani cache, musíme vrátiť niečo platné.
+          // Pokúsime sa nájsť hlavnú index stránku v cache.
+          return caches.match('/nova/index.html').then((fallback) => {
+            if (fallback) return fallback;
+            
+            // Úplná záchrana: ak nemáme vôbec nič, vygenerujeme čistú offline textovú odpoveď, aby prehliadač nespadol na TypeError
+            return new Response('Aplikácia je offline a dáta nie sú načítané.', {
+              status: 503,
+              headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+            });
+          });
         });
     })
   );
